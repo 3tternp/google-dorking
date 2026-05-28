@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Google Dorking Tool</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+</head>
+<body>
+    <nav class="navbar navbar-dark bg-dark sticky-top">
+        <div class="container-fluid">
+            <span class="navbar-brand mb-0 h1">
+                <i class="fas fa-search"></i> Google Dorking Tool
+            </span>
+            <div class="nav-buttons">
+                <a href="/" class="btn btn-sm btn-outline-light me-2">Home</a>
+                <a href="/help" class="btn btn-sm btn-outline-light">Help</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid py-5">
+        <div class="row">
+            <div class="col-lg-8 mx-auto">
+                <!-- Header -->
+                <div class="text-center mb-5">
+                    <h1 class="display-4 mb-3">Security Dorking Scanner</h1>
+                    <p class="lead text-muted">Automated Google dorking for security reconnaissance</p>
+                    <div class="alert alert-info" role="alert">
+                        <i class="fas fa-info-circle"></i> Total Queries Available: <strong>{{ total_queries }}</strong>
+                    </div>
+                </div>
+
+                <!-- Input Form -->
+                <div class="card shadow-lg mb-5">
+                    <div class="card-body p-4">
+                        <h5 class="card-title mb-4">
+                            <i class="fas fa-globe"></i> Start New Scan
+                        </h5>
+                        
+                        <form id="scanForm">
+                            <!-- Domain Input -->
+                            <div class="mb-4">
+                                <label for="domainInput" class="form-label">
+                                    <strong>Target Domain</strong>
+                                </label>
+                                <input 
+                                    type="text" 
+                                    class="form-control form-control-lg" 
+                                    id="domainInput" 
+                                    placeholder="e.g., example.com or site.example.co.uk"
+                                    required>
+                                <small class="form-text text-muted d-block mt-2">
+                                    Enter the domain or URL you want to scan
+                                </small>
+                            </div>
+
+                            <!-- Category Selection -->
+                            <div class="mb-4">
+                                <label class="form-label"><strong>Select Categories</strong></label>
+                                <small class="form-text text-muted d-block mb-3">
+                                    Leave unchecked to scan all categories
+                                </small>
+                                <div id="categoriesContainer" class="row g-2">
+                                    <!-- Categories will be loaded here -->
+                                </div>
+                            </div>
+
+                            <!-- Buttons -->
+                            <div class="d-grid gap-2 d-sm-flex justify-content-between">
+                                <button type="submit" class="btn btn-primary btn-lg" id="submitBtn">
+                                    <i class="fas fa-play"></i> Start Scan
+                                </button>
+                                <button type="reset" class="btn btn-secondary btn-lg">
+                                    <i class="fas fa-redo"></i> Reset
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Categories Info -->
+                <div class="card shadow-lg">
+                    <div class="card-body">
+                        <h5 class="card-title mb-3">
+                            <i class="fas fa-list"></i> Available Scanning Categories
+                        </h5>
+                        <div id="categoriesInfo" class="row g-3">
+                            <!-- Categories info will be loaded here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="bg-dark text-white text-center py-4 mt-5">
+        <p class="mb-0">
+            <i class="fas fa-shield-alt"></i> 
+            Google Dorking Tool - For authorized security testing only
+        </p>
+    </footer>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    <script>
+        // Load categories on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            loadCategories();
+        });
+
+        function loadCategories() {
+            fetch('/api/categories')
+                .then(response => response.json())
+                .then(data => {
+                    const container = document.getElementById('categoriesContainer');
+                    const infoContainer = document.getElementById('categoriesInfo');
+                    
+                    data.categories.forEach(category => {
+                        // Add checkbox for each category
+                        const checkbox = document.createElement('div');
+                        checkbox.className = 'col-md-4';
+                        checkbox.innerHTML = `
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" value="${category}" id="cat_${category}">
+                                <label class="form-check-label" for="cat_${category}">
+                                    ${category.replace(/_/g, ' ')}
+                                </label>
+                            </div>
+                        `;
+                        container.appendChild(checkbox);
+                        
+                        // Add info card for each category
+                        const count = data.per_category[category] || 0;
+                        const infoCard = document.createElement('div');
+                        infoCard.className = 'col-md-4';
+                        infoCard.innerHTML = `
+                            <div class="card text-center border-primary">
+                                <div class="card-body">
+                                    <h6 class="card-title">${category.replace(/_/g, ' ')}</h6>
+                                    <p class="card-text">
+                                        <strong>${count}</strong> queries
+                                    </p>
+                                </div>
+                            </div>
+                        `;
+                        infoContainer.appendChild(infoCard);
+                    });
+                })
+                .catch(error => console.error('Error loading categories:', error));
+        }
+
+        // Form submission
+        document.getElementById('scanForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const domain = document.getElementById('domainInput').value;
+            const selectedCategories = Array.from(
+                document.querySelectorAll('#categoriesContainer input:checked')
+            ).map(checkbox => checkbox.value);
+            
+            const submitBtn = document.getElementById('submitBtn');
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Starting...';
+            
+            fetch('/api/start-scan', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    domain: domain,
+                    categories: selectedCategories.length > 0 ? selectedCategories : null
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'started') {
+                    // Redirect to results page
+                    window.location.href = `/results/${data.task_id}`;
+                } else {
+                    alert('Error: ' + data.message);
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = '<i class="fas fa-play"></i> Start Scan';
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Error starting scan: ' + error);
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = '<i class="fas fa-play"></i> Start Scan';
+            });
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scan Results - Google Dorking Tool</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+</head>
+<body>
+    <nav class="navbar navbar-dark bg-dark sticky-top">
+        <div class="container-fluid">
+            <span class="navbar-brand mb-0 h1">
+                <i class="fas fa-search"></i> Google Dorking Tool
+            </span>
+            <div class="nav-buttons">
+                <a href="/" class="btn btn-sm btn-outline-light">Home</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid py-5">
+        <div class="row">
+            <div class="col-lg-10 mx-auto">
+                <!-- Progress Section -->
+                <div class="card shadow-lg mb-4" id="progressCard">
+                    <div class="card-body">
+                        <h5 class="card-title">
+                            <i class="fas fa-hourglass-start"></i> Scan Progress
+                        </h5>
+                        <div class="progress mb-3" style="height: 25px;">
+                            <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                                 id="progressBar" 
+                                 role="progressbar" 
+                                 style="width: 0%"
+                                 aria-valuenow="0" 
+                                 aria-valuemin="0" 
+                                 aria-valuemax="100">
+                                <span id="progressText">0%</span>
+                            </div>
+                        </div>
+                        <div id="statusMessage" class="alert alert-info mb-0">
+                            <i class="fas fa-spinner fa-spin"></i> Loading scan status...
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Results Section -->
+                <div class="card shadow-lg" id="resultsCard" style="display: none;">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-center mb-4">
+                            <h5 class="card-title mb-0">
+                                <i class="fas fa-check-circle text-success"></i> Scan Results
+                            </h5>
+                            <div class="btn-group" role="group">
+                                <button type="button" class="btn btn-sm btn-outline-primary" onclick="exportResults('json')">
+                                    <i class="fas fa-download"></i> JSON
+                                </button>
+                                <button type="button" class="btn btn-sm btn-outline-primary" onclick="exportResults('csv')">
+                                    <i class="fas fa-download"></i> CSV
+                                </button>
+                                <a href="/" class="btn btn-sm btn-outline-secondary">
+                                    <i class="fas fa-plus"></i> New Scan
+                                </a>
+                            </div>
+                        </div>
+
+                        <!-- Summary -->
+                        <div id="resultsSummary" class="row mb-4"></div>
+
+                        <!-- Tabs for Results -->
+                        <ul class="nav nav-tabs mb-4" id="resultsTabs" role="tablist">
+                            <!-- Tabs will be generated here -->
+                        </ul>
+
+                        <!-- Tab Content -->
+                        <div class="tab-content" id="resultsTabContent">
+                            <!-- Content will be generated here -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Error Section -->
+                <div class="card shadow-lg border-danger" id="errorCard" style="display: none;">
+                    <div class="card-body">
+                        <h5 class="card-title text-danger">
+                            <i class="fas fa-exclamation-circle"></i> Scan Failed
+                        </h5>
+                        <p id="errorMessage" class="mb-0"></p>
+                        <a href="/" class="btn btn-primary mt-3">
+                            <i class="fas fa-arrow-left"></i> Back to Home
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <footer class="bg-dark text-white text-center py-4 mt-5">
+        <p class="mb-0">
+            <i class="fas fa-shield-alt"></i> 
+            Google Dorking Tool - For authorized security testing only
+        </p>
+    </footer>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
+    <script>
+        const taskId = "{{ task_id }}";
+        let pollCount = 0;
+        const maxPolls = 360; // 30 minutes with 5-second intervals
+
+        function pollScanStatus() {
+            pollCount++;
+            
+            if (pollCount > maxPolls) {
+                showError('Scan timeout: Please try again');
+                return;
+            }
+
+            fetch(`/api/scan-status/${taskId}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'PROGRESS') {
+                        const progress = data.progress || 0;
+                        const total = data.total || 1;
+                        const percentage = Math.round((progress / total) * 100);
+                        
+                        document.getElementById('progressBar').style.width = percentage + '%';
+                        document.getElementById('progressBar').setAttribute('aria-valuenow', percentage);
+                        document.getElementById('progressText').innerText = percentage + '%';
+                        document.getElementById('statusMessage').innerHTML = 
+                            `<i class="fas fa-spinner fa-spin"></i> ${data.message}<br><small>${progress}/${total} queries</small>`;
+                        
+                        // Continue polling
+                        setTimeout(pollScanStatus, 5000);
+                    } 
+                    else if (data.status === 'SUCCESS') {
+                        document.getElementById('progressBar').style.width = '100%';
+                        document.getElementById('progressText').innerText = '100%';
+                        document.getElementById('statusMessage').innerHTML = 
+                            '<i class="fas fa-check-circle text-success"></i> Scan completed successfully!';
+                        
+                        displayResults(data.data);
+                    } 
+                    else if (data.status === 'FAILURE') {
+                        showError(data.error || 'Unknown error occurred');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error polling status:', error);
+                    setTimeout(pollScanStatus, 5000); // Retry on error
+                });
+        }
+
+        function displayResults(results) {
+            document.getElementById('progressCard').style.display = 'none';
+            document.getElementById('resultsCard').style.display = 'block';
+            
+            // Display summary
+            const summary = document.getElementById('resultsSummary');
+            summary.innerHTML = `
+                <div class="col-md-4">
+                    <div class="card text-center border-primary">
+                        <div class="card-body">
+                            <h6 class="card-title">Domain</h6>
+                            <p class="card-text"><strong>${results.domain}</strong></p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="card text-center border-info">
+                        <div class="card-body">
+                            <h6 class="card-title">Categories Scanned</h6>
+                            <p class="card-text"><strong>${results.categories_scanned.length}</strong></p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="card text-center border-success">
+                        <div class="card-body">
+                            <h6 class="card-title">Total Queries</h6>
+                            <p class="card-text"><strong>${results.total_queries}</strong></p>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            // Create tabs for each category
+            const tabsList = document.getElementById('resultsTabs');
+            const tabsContent = document.getElementById('resultsTabContent');
+            
+            let isFirst = true;
+            Object.entries(results.results_by_category).forEach(([category, queries]) => {
+                // Add tab
+                const tabId = `tab_${category}`;
+                const tabLink = document.createElement('li');
+                tabLink.className = 'nav-item';
+                tabLink.innerHTML = `
+                    <button class="nav-link ${isFirst ? 'active' : ''}" 
+                            id="${tabId}_tab" 
+                            data-bs-toggle="tab" 
+                            data-bs-target="#${tabId}" 
+                            type="button">
+                        ${category.replace(/_/g, ' ')} (${queries.length})
+                    </button>
+                `;
+                tabsList.appendChild(tabLink);
+                
+                // Add content
+                const successCount = queries.filter(q => q.status === 'success').length;
+                const resultsCount = queries.reduce((sum, q) => sum + (q.results ? q.results.length : 0), 0);
+                
+                const tabContent = document.createElement('div');
+                tabContent.className = `tab-pane fade ${isFirst ? 'show active' : ''}`;
+                tabContent.id = tabId;
+                
+                let html = `
+                    <div class="alert alert-info mb-3">
+                        <strong>Success Rate:</strong> ${successCount}/${queries.length} | 
+                        <strong>Results Found:</strong> ${resultsCount}
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table table-hover table-sm">
+                            <thead>
+                                <tr>
+                                    <th>Query</th>
+                                    <th>Status</th>
+                                    <th>Results</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                `;
+                
+                queries.forEach(query => {
+                    const status = query.status === 'success' ? 
+                        '<span class="badge bg-success">Success</span>' : 
+                        '<span class="badge bg-danger">Error</span>';
+                    const resultCount = query.results ? query.results.length : 0;
+                    
+                    html += `
+                        <tr>
+                            <td><small class="font-monospace">${query.query}</small></td>
+                            <td>${status}</td>
+                            <td>${resultCount}</td>
+                        </tr>
+                    `;
+                });
+                
+                html += `
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+                
+                tabContent.innerHTML = html;
+                tabsContent.appendChild(tabContent);
+                
+                isFirst = false;
+            });
+        }
+
+        function showError(message) {
+            document.getElementById('progressCard').style.display = 'none';
+            document.getElementById('resultsCard').style.display = 'none';
+            document.getElementById('errorCard').style.display = 'block';
+            document.getElementById('errorMessage').innerText = message;
+        }
+
+        function exportResults(format) {
+            window.location.href = `/api/export-results/${taskId}?format=${format}`;
+        }
+
+        // Start polling on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            pollScanStatus();
+        });
+    </script>
+</body>
+</html>
