@@ -81,6 +81,31 @@
                     </div>
                 </div>
 
+                
+                <!-- Subdomain Recon Card -->
+                <div class="card shadow-lg mb-4" style="border-top:3px solid #a8ff3e !important">
+                    <div class="card-body p-4">
+                        <h5 class="card-title mb-3">
+                            <i class="fas fa-sitemap"></i> Passive Subdomain Enumeration
+                            <span class="badge bg-success ms-2" style="font-size:10px">No Google needed</span>
+                        </h5>
+                        <p class="text-muted small mb-3">
+                            Enumerate subdomains using <strong>crt.sh</strong>, <strong>HackerTarget</strong>,
+                            <strong>AlienVault OTX</strong>, <strong>ThreatCrowd</strong>, and
+                            <strong>DNS brute-force</strong> — works even when Google blocks requests.
+                        </p>
+                        <div class="mb-3">
+                            <label class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="bruteForceToggle" checked>
+                                <span class="form-check-label">Enable DNS brute-force (130 common subdomains)</span>
+                            </label>
+                        </div>
+                        <button class="btn btn-success btn-lg" id="reconBtn" onclick="startRecon()">
+                            <i class="fas fa-search-location"></i> Start Subdomain Recon
+                        </button>
+                    </div>
+                </div>
+
                 <!-- Categories Info -->
                 <div class="card shadow-lg">
                     <div class="card-body">
@@ -194,6 +219,40 @@
                 submitBtn.innerHTML = '<i class="fas fa-play"></i> Start Scan';
             });
         });
+
+        function startRecon() {
+            const domain = document.getElementById('domainInput').value.trim();
+            if (!domain || domain.length < 3) {
+                alert('Please enter a valid domain first.');
+                return;
+            }
+            const bruteForce = document.getElementById('bruteForceToggle').checked;
+            const btn = document.getElementById('reconBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Starting…';
+
+            fetch('/api/start-recon', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({domain: domain, brute_force: bruteForce})
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.status === 'started') {
+                    window.location.href = '/recon/' + data.task_id;
+                } else {
+                    alert('Error: ' + data.message);
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fas fa-search-location"></i> Start Subdomain Recon';
+                }
+            })
+            .catch(err => {
+                alert('Error: ' + err);
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-search-location"></i> Start Subdomain Recon';
+            });
+        }
+
     </script>
 </body>
 </html>
