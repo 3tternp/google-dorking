@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Subdomain Recon — Dorking Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+    <style>
+        :root {
+            --bg:#0a0d12;--bg2:#0f1318;--bg3:#141920;--border:#1e2530;--border2:#2a3444;
+            --accent:#00e5ff;--green:#a8ff3e;--red:#ff4d6d;--warn:#ffb347;--purple:#b47aff;
+            --text:#c8d8e8;--text2:#6a7f99;--text3:#3a4f66;
+            --mono:'JetBrains Mono',monospace;--ui:'Syne',sans-serif;
+        }
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{background:var(--bg);color:var(--text);font-family:var(--ui);min-height:100vh}
+        .topbar{background:var(--bg2);border-bottom:1px solid var(--border);padding:0 20px;height:50px;
+            display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
+        .brand{font-size:12px;font-weight:700;letter-spacing:.15em;color:var(--accent);font-family:var(--mono)}
+        .brand em{color:var(--text2);font-style:normal;font-weight:400}
+        .topbar-right{display:flex;gap:8px}
+        .btn{font-family:var(--mono);font-size:11px;font-weight:600;padding:5px 12px;border-radius:4px;
+            cursor:pointer;border:1px solid transparent;text-decoration:none;display:inline-flex;
+            align-items:center;gap:5px;transition:all .15s}
+        .btn-ghost{background:transparent;border-color:var(--border2);color:var(--text2)}
+        .btn-ghost:hover{border-color:var(--accent);color:var(--accent)}
+        .btn-accent{background:var(--accent);color:var(--bg);font-weight:700}
+
+        /* progress */
+        #progressSection{max-width:600px;margin:80px auto;padding:0 24px;text-align:center}
+        .prog-title{font-size:20px;font-weight:800;margin-bottom:8px}
+        .prog-sub{font-family:var(--mono);font-size:12px;color:var(--text2);margin-bottom:28px}
+        .spinner{width:40px;height:40px;border:3px solid var(--border2);border-top-color:var(--accent);
+            border-radius:50%;animation:spin 1s linear infinite;margin:0 auto 20px}
+        @keyframes spin{to{transform:rotate(360deg)}}
+        .source-list{text-align:left;background:var(--bg2);border:1px solid var(--border);
+            border-radius:6px;padding:12px 16px;margin-top:20px}
+        .source-item{font-family:var(--mono);font-size:11px;color:var(--text2);
+            padding:4px 0;display:flex;align-items:center;gap:8px}
+        .source-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+        .dot-wait{background:var(--text3)}
+        .dot-run{background:var(--warn);animation:pulse 1s infinite}
+        .dot-done{background:var(--green)}
+        @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+
+        /* dashboard */
+        #dashboard{display:none;padding:20px;max-width:1200px;margin:0 auto}
+        .meta-row{display:flex;align-items:center;gap:12px;margin-bottom:18px;flex-wrap:wrap}
+        .meta-target{font-size:18px;font-weight:800}
+        .meta-target span{color:var(--accent)}
+        .chip{font-family:var(--mono);font-size:10px;padding:3px 8px;border-radius:3px;
+            background:var(--bg3);border:1px solid var(--border);color:var(--text2)}
+
+        /* stats */
+        .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:18px}
+        .stat{background:var(--bg2);border:1px solid var(--border);border-radius:6px;
+            padding:12px 14px;position:relative;overflow:hidden}
+        .stat::before{content:'';position:absolute;top:0;left:0;right:0;height:2px}
+        .stat.s1::before{background:var(--accent)}
+        .stat.s2::before{background:var(--green)}
+        .stat.s3::before{background:var(--purple)}
+        .stat.s4::before{background:var(--warn)}
+        .stat-label{font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:.1em;
+            text-transform:uppercase;color:var(--text2);margin-bottom:5px}
+        .stat-val{font-size:24px;font-weight:800}
+        .stat-note{font-family:var(--mono);font-size:9px;color:var(--text3);margin-top:2px}
+
+        /* source breakdown */
+        .sources-grid{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px}
+        .src-chip{font-family:var(--mono);font-size:11px;padding:5px 12px;border-radius:4px;
+            background:var(--bg2);border:1px solid var(--border);color:var(--text2);
+            display:flex;align-items:center;gap:6px}
+        .src-count{font-weight:700;color:var(--green)}
+
+        /* controls */
+        .controls{display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap}
+        .search-box{font-family:var(--mono);font-size:12px;padding:6px 12px;
+            background:var(--bg2);border:1px solid var(--border);border-radius:4px;
+            color:var(--text);outline:none;width:280px;transition:border-color .15s}
+        .search-box:focus{border-color:var(--accent)}
+        .filter-btn{font-family:var(--mono);font-size:10px;padding:5px 10px;border-radius:4px;
+            background:var(--bg3);border:1px solid var(--border);color:var(--text2);
+            cursor:pointer;transition:all .15s}
+        .filter-btn.active,.filter-btn:hover{border-color:var(--accent);color:var(--accent)}
+        .result-count{font-family:var(--mono);font-size:11px;color:var(--text3);margin-left:auto}
+
+        /* table */
+        .table-wrap{background:var(--bg2);border:1px solid var(--border);border-radius:6px;overflow:hidden}
+        table{width:100%;border-collapse:collapse}
+        thead{background:var(--bg3)}
+        th{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.08em;
+            text-transform:uppercase;color:var(--text3);padding:10px 14px;text-align:left;
+            border-bottom:1px solid var(--border)}
+        th.sortable{cursor:pointer;user-select:none}
+        th.sortable:hover{color:var(--accent)}
+        td{font-family:var(--mono);font-size:12px;color:var(--text2);padding:9px 14px;
+            border-bottom:1px solid var(--border);vertical-align:middle}
+        tr:last-child td{border-bottom:none}
+        tr:hover td{background:var(--bg3)}
+        .td-sub{color:var(--text);font-weight:500}
+        .td-ip{color:var(--accent)}
+        .td-src .src-tag{font-size:9px;padding:2px 6px;border-radius:3px;font-weight:700}
+        .src-crt{background:#0d1a2a;border:1px solid #1a3a5a;color:#5bbdff}
+        .src-ht{background:#0d1a10;border:1px solid #1a3a20;color:var(--green)}
+        .src-av{background:#1a0d1a;border:1px solid #3a1a3a;color:var(--purple)}
+        .src-tc{background:#1a1000;border:1px solid #3a2800;color:var(--warn)}
+        .src-dns{background:#0d0d1a;border:1px solid #1a1a3a;color:#8888ff}
+        .no-results{text-align:center;padding:40px;font-family:var(--mono);
+            font-size:13px;color:var(--text3)}
+
+        /* error */
+        #errorSection{display:none;max-width:560px;margin:80px auto;text-align:center;padding:24px}
+        .err-code{font-size:48px;font-weight:800;color:var(--red);margin-bottom:10px}
+        .err-msg{font-family:var(--mono);font-size:12px;color:var(--text2);margin-bottom:20px}
+
+        @media(max-width:600px){.search-box{width:100%}}
+    </style>
+</head>
+<body>
+
+<nav class="topbar">
+    <div class="brand">DORK<em>/</em>SCAN &nbsp;·&nbsp; <em>Subdomain Recon</em></div>
+    <div class="topbar-right">
+        <button class="btn btn-ghost" onclick="exportRecon('json')">⬇ JSON</button>
+        <button class="btn btn-ghost" onclick="exportRecon('csv')">⬇ CSV</button>
+        <a href="/" class="btn btn-accent">+ New Scan</a>
+    </div>
+</nav>
+
+<!-- PROGRESS -->
+<div id="progressSection">
+    <div class="spinner"></div>
+    <div class="prog-title" id="progTitle">Running Passive Recon…</div>
+    <div class="prog-sub">Querying crt.sh, HackerTarget, AlienVault OTX, ThreatCrowd + DNS brute-force</div>
+    <div class="source-list">
+        <div class="source-item"><div class="source-dot dot-run" id="d-crt"></div><span>crt.sh — Certificate Transparency Logs</span></div>
+        <div class="source-item"><div class="source-dot dot-wait" id="d-ht"></div><span>HackerTarget — Passive DNS</span></div>
+        <div class="source-item"><div class="source-dot dot-wait" id="d-av"></div><span>AlienVault OTX — Threat Intel</span></div>
+        <div class="source-item"><div class="source-dot dot-wait" id="d-tc"></div><span>ThreatCrowd — Domain Report</span></div>
+        <div class="source-item"><div class="source-dot dot-wait" id="d-dns"></div><span>DNS Brute-force — 130 common subdomains</span></div>
+    </div>
+</div>
+
+<!-- DASHBOARD -->
+<div id="dashboard">
+    <div class="meta-row">
+        <div class="meta-target">SUBDOMAINS: <span id="metaDomain"></span></div>
+        <div class="chip" id="metaDate"></div>
+    </div>
+
+    <div class="stats">
+        <div class="stat s1"><div class="stat-label">Total Found</div><div class="stat-val" id="sTotal">—</div><div class="stat-note">unique subdomains</div></div>
+        <div class="stat s2"><div class="stat-label">With IP</div><div class="stat-val" id="sWithIP">—</div><div class="stat-note">resolved</div></div>
+        <div class="stat s3"><div class="stat-label">Sources</div><div class="stat-val" id="sSources">—</div><div class="stat-note">data sources</div></div>
+        <div class="stat s4"><div class="stat-label">Brute-forced</div><div class="stat-val" id="sBrute">—</div><div class="stat-note">DNS confirmed</div></div>
+    </div>
+
+    <div class="sources-grid" id="sourcesGrid"></div>
+
+    <div class="controls">
+        <input class="search-box" id="searchBox" type="text" placeholder="Filter subdomains…" oninput="filterTable()">
+        <button class="filter-btn active" data-src="all" onclick="filterSource(this)">All</button>
+        <button class="filter-btn" data-src="crt.sh" onclick="filterSource(this)">crt.sh</button>
+        <button class="filter-btn" data-src="HackerTarget" onclick="filterSource(this)">HackerTarget</button>
+        <button class="filter-btn" data-src="AlienVault OTX" onclick="filterSource(this)">AlienVault</button>
+        <button class="filter-btn" data-src="ThreatCrowd" onclick="filterSource(this)">ThreatCrowd</button>
+        <button class="filter-btn" data-src="DNS brute-force" onclick="filterSource(this)">DNS Brute</button>
+        <span class="result-count" id="resultCount"></span>
+    </div>
+
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th class="sortable" onclick="sortBy('subdomain')">#&nbsp; Subdomain ↕</th>
+                    <th class="sortable" onclick="sortBy('ip')">IP Address ↕</th>
+                    <th>Source</th>
+                    <th>Extra Info</th>
+                </tr>
+            </thead>
+            <tbody id="tableBody"></tbody>
+        </table>
+        <div class="no-results" id="noResults" style="display:none">No subdomains match the current filter.</div>
+    </div>
+</div>
+
+<!-- ERROR -->
+<div id="errorSection">
+    <div class="err-code">ERR</div>
+    <div class="err-msg" id="errMsg"></div>
+    <a href="/" class="btn btn-accent">← New Scan</a>
+</div>
+
+<script>
+const TASK_ID = "{{ task_id }}";
+let allData = [];
+let activeSource = 'all';
+let sortCol = 'subdomain', sortAsc = true;
+
+// animate progress dots over time
+const dotSeq = ['d-crt','d-ht','d-av','d-tc','d-dns'];
+let dotIdx = 0;
+const dotTimer = setInterval(() => {
+    if (dotIdx > 0) document.getElementById(dotSeq[dotIdx-1]).className = 'source-dot dot-done';
+    if (dotIdx < dotSeq.length) {
+        document.getElementById(dotSeq[dotIdx]).className = 'source-dot dot-run';
+        dotIdx++;
+    } else {
+        clearInterval(dotTimer);
+    }
+}, 4000);
+
+function poll() {
+    fetch(`/api/recon-status/${TASK_ID}`)
+        .then(r => r.json())
+        .then(d => {
+            if (d.status === 'SUCCESS') {
+                clearInterval(dotTimer);
+                dotSeq.forEach(id => document.getElementById(id).className = 'source-dot dot-done');
+                renderDashboard(d.data);
+            } else if (d.status === 'FAILURE') {
+                clearInterval(dotTimer);
+                showError(d.error || 'Recon task failed');
+            } else {
+                if (d.message) document.getElementById('progTitle').textContent = d.message;
+                setTimeout(poll, 3000);
+            }
+        })
+        .catch(() => setTimeout(poll, 5000));
+}
+
+function renderDashboard(data) {
+    allData = data.subdomains || [];
+    const domain = data.domain || '—';
+    const srcCounts = data.source_counts || {};
+
+    document.getElementById('metaDomain').textContent = domain;
+    document.getElementById('metaDate').textContent   = data.scan_date ? new Date(data.scan_date).toLocaleString() : '—';
+
+    const withIP  = allData.filter(s => s.ip).length;
+    const brute   = allData.filter(s => s.source === 'DNS brute-force').length;
+
+    document.getElementById('sTotal').textContent   = allData.length;
+    document.getElementById('sWithIP').textContent  = withIP;
+    document.getElementById('sSources').textContent = Object.keys(srcCounts).length;
+    document.getElementById('sBrute').textContent   = brute;
+
+    // source chips
+    const sg = document.getElementById('sourcesGrid');
+    sg.innerHTML = '';
+    Object.entries(srcCounts).forEach(([src, cnt]) => {
+        sg.innerHTML += `<div class="src-chip">${src}<span class="src-count">${cnt}</span></div>`;
+    });
+
+    document.getElementById('progressSection').style.display = 'none';
+    document.getElementById('dashboard').style.display = 'block';
+
+    renderTable();
+}
+
+function srcClass(src) {
+    if (src === 'crt.sh')          return 'src-tag src-crt';
+    if (src === 'HackerTarget')    return 'src-tag src-ht';
+    if (src === 'AlienVault OTX')  return 'src-tag src-av';
+    if (src === 'ThreatCrowd')     return 'src-tag src-tc';
+    if (src === 'DNS brute-force') return 'src-tag src-dns';
+    return 'src-tag';
+}
+
+function renderTable() {
+    const query = document.getElementById('searchBox').value.toLowerCase();
+    let rows = allData.filter(s => {
+        if (activeSource !== 'all' && s.source !== activeSource) return false;
+        if (query && !s.subdomain.includes(query) && !s.ip.includes(query)) return false;
+        return true;
+    });
+
+    // sort
+    rows.sort((a, b) => {
+        const av = a[sortCol] || '', bv = b[sortCol] || '';
+        return sortAsc ? av.localeCompare(bv) : bv.localeCompare(av);
+    });
+
+    const tbody = document.getElementById('tableBody');
+    tbody.innerHTML = '';
+    document.getElementById('noResults').style.display = rows.length === 0 ? 'block' : 'none';
+    document.getElementById('resultCount').textContent = `${rows.length} of ${allData.length}`;
+
+    rows.forEach((s, i) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td class="td-sub">${i+1}. ${esc(s.subdomain)}</td>
+            <td class="td-ip">${s.ip ? esc(s.ip) : '<span style="color:var(--text3)">—</span>'}</td>
+            <td class="td-src"><span class="${srcClass(s.source)}">${esc(s.source)}</span></td>
+            <td style="font-size:10px;color:var(--text3)">${esc(s.extra||'')}</td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+
+function filterTable() { renderTable(); }
+function filterSource(btn) {
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    activeSource = btn.dataset.src;
+    renderTable();
+}
+function sortBy(col) {
+    if (sortCol === col) sortAsc = !sortAsc;
+    else { sortCol = col; sortAsc = true; }
+    renderTable();
+}
+function esc(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+function showError(msg) {
+    document.getElementById('progressSection').style.display = 'none';
+    document.getElementById('errorSection').style.display    = 'block';
+    document.getElementById('errMsg').textContent            = msg;
+}
+function exportRecon(fmt) {
+    window.location.href = `/api/export-recon/${TASK_ID}?format=${fmt}`;
+}
+
+document.addEventListener('DOMContentLoaded', poll);
+</script>
+</body>
+</html>

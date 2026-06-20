@@ -3,278 +3,885 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Scan Results - Google Dorking Tool</title>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <title>Scan Results — Dorking Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
     <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+    <style>
+        :root {
+            --bg:        #0a0d12;
+            --bg2:       #0f1318;
+            --bg3:       #141920;
+            --border:    #1e2530;
+            --border2:   #2a3444;
+            --accent:    #00e5ff;
+            --accent2:   #ff4d6d;
+            --accent3:   #a8ff3e;
+            --warn:      #ffb347;
+            --text:      #c8d8e8;
+            --text2:     #6a7f99;
+            --text3:     #3a4f66;
+            --font-mono: 'JetBrains Mono', monospace;
+            --font-ui:   'Syne', sans-serif;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: var(--font-ui);
+            min-height: 100vh;
+        }
+
+        /* ── TOPBAR ── */
+        .topbar {
+            background: var(--bg2);
+            border-bottom: 1px solid var(--border);
+            padding: 0 24px;
+            height: 52px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        .topbar-brand {
+            font-size: 13px;
+            font-weight: 700;
+            letter-spacing: .15em;
+            text-transform: uppercase;
+            color: var(--accent);
+        }
+        .topbar-brand span { color: var(--text2); font-weight: 400; }
+        .topbar-actions { display: flex; gap: 8px; }
+        .btn {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            font-weight: 500;
+            padding: 6px 14px;
+            border-radius: 4px;
+            cursor: pointer;
+            border: 1px solid transparent;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            transition: all .15s;
+        }
+        .btn-ghost {
+            background: transparent;
+            border-color: var(--border2);
+            color: var(--text2);
+        }
+        .btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
+        .btn-primary {
+            background: var(--accent);
+            color: var(--bg);
+            font-weight: 700;
+        }
+        .btn-primary:hover { filter: brightness(1.1); }
+        .btn-danger {
+            background: transparent;
+            border-color: var(--accent2);
+            color: var(--accent2);
+        }
+        .btn-danger:hover { background: var(--accent2); color: #fff; }
+
+        /* ── SCAN PROGRESS ── */
+        #progressSection {
+            max-width: 700px;
+            margin: 80px auto;
+            text-align: center;
+            padding: 0 24px;
+        }
+        .progress-title {
+            font-size: 22px;
+            font-weight: 800;
+            color: var(--text);
+            margin-bottom: 6px;
+        }
+        .progress-sub {
+            font-size: 13px;
+            color: var(--text2);
+            font-family: var(--font-mono);
+            margin-bottom: 32px;
+        }
+        .progress-track {
+            height: 4px;
+            background: var(--border2);
+            border-radius: 2px;
+            overflow: hidden;
+            margin-bottom: 16px;
+        }
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent), var(--accent3));
+            border-radius: 2px;
+            transition: width .4s ease;
+            width: 0%;
+        }
+        .progress-meta {
+            display: flex;
+            justify-content: space-between;
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--text3);
+            margin-bottom: 20px;
+        }
+        .progress-query {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--text2);
+            background: var(--bg3);
+            border: 1px solid var(--border);
+            padding: 8px 14px;
+            border-radius: 4px;
+            text-align: left;
+            min-height: 36px;
+            word-break: break-all;
+        }
+        .pulse { animation: pulse 1.5s ease-in-out infinite; }
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+        /* ── DASHBOARD ── */
+        #dashboard { display: none; padding: 24px; max-width: 1400px; margin: 0 auto; }
+
+        /* meta row */
+        .meta-row {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 24px;
+            flex-wrap: wrap;
+        }
+        .meta-domain {
+            font-size: 20px;
+            font-weight: 800;
+            color: var(--text);
+        }
+        .meta-domain span {
+            color: var(--accent);
+        }
+        .meta-badge {
+            font-family: var(--font-mono);
+            font-size: 10px;
+            font-weight: 700;
+            padding: 3px 8px;
+            border-radius: 3px;
+            text-transform: uppercase;
+            letter-spacing: .08em;
+        }
+        .badge-date { background: var(--bg3); border: 1px solid var(--border); color: var(--text2); }
+
+        /* stat cards */
+        .stat-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 12px;
+            margin-bottom: 28px;
+        }
+        .stat-card {
+            background: var(--bg2);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 16px 18px;
+            position: relative;
+            overflow: hidden;
+        }
+        .stat-card::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: 2px;
+        }
+        .stat-card.c-total::before  { background: var(--accent); }
+        .stat-card.c-findings::before { background: var(--accent3); }
+        .stat-card.c-blocked::before { background: var(--warn); }
+        .stat-card.c-cats::before   { background: var(--accent2); }
+        .stat-card.c-rate::before   { background: #b47aff; }
+        .stat-label {
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: .1em;
+            text-transform: uppercase;
+            color: var(--text2);
+            margin-bottom: 8px;
+            font-family: var(--font-mono);
+        }
+        .stat-value {
+            font-size: 28px;
+            font-weight: 800;
+            color: var(--text);
+            line-height: 1;
+        }
+        .stat-sub {
+            font-size: 10px;
+            color: var(--text3);
+            font-family: var(--font-mono);
+            margin-top: 4px;
+        }
+
+        /* findings banner */
+        .findings-banner {
+            background: linear-gradient(135deg, #0d1f12, #0a1a0a);
+            border: 1px solid #1e3a1e;
+            border-radius: 8px;
+            padding: 14px 20px;
+            margin-bottom: 24px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .findings-banner.none {
+            background: var(--bg2);
+            border-color: var(--border);
+        }
+        .findings-dot {
+            width: 10px; height: 10px;
+            border-radius: 50%;
+            background: var(--accent3);
+            flex-shrink: 0;
+            animation: pulse 2s ease-in-out infinite;
+        }
+        .findings-dot.none { background: var(--text3); animation: none; }
+        .findings-text { font-size: 13px; color: var(--text); }
+        .findings-text strong { color: var(--accent3); }
+        .findings-text.none strong { color: var(--text2); }
+
+        /* layout: sidebar + main */
+        .content-layout {
+            display: grid;
+            grid-template-columns: 220px 1fr;
+            gap: 16px;
+            align-items: start;
+        }
+
+        /* category sidebar */
+        .cat-sidebar {
+            background: var(--bg2);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            overflow: hidden;
+            position: sticky;
+            top: 68px;
+            max-height: calc(100vh - 90px);
+            overflow-y: auto;
+        }
+        .cat-sidebar::-webkit-scrollbar { width: 4px; }
+        .cat-sidebar::-webkit-scrollbar-track { background: transparent; }
+        .cat-sidebar::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+        .cat-sidebar-header {
+            padding: 12px 14px;
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: .12em;
+            text-transform: uppercase;
+            color: var(--text3);
+            font-family: var(--font-mono);
+            border-bottom: 1px solid var(--border);
+        }
+        .cat-item {
+            padding: 9px 14px;
+            font-size: 12px;
+            color: var(--text2);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 6px;
+            border-left: 2px solid transparent;
+            transition: all .12s;
+            font-family: var(--font-mono);
+        }
+        .cat-item:hover { background: var(--bg3); color: var(--text); }
+        .cat-item.active {
+            background: var(--bg3);
+            border-left-color: var(--accent);
+            color: var(--accent);
+        }
+        .cat-item.has-findings { color: var(--text); }
+        .cat-item.has-findings .cat-count {
+            background: var(--accent3);
+            color: var(--bg);
+        }
+        .cat-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 11px; }
+        .cat-count {
+            font-size: 10px;
+            font-weight: 700;
+            padding: 2px 6px;
+            border-radius: 10px;
+            background: var(--bg3);
+            border: 1px solid var(--border);
+            color: var(--text3);
+            flex-shrink: 0;
+            min-width: 22px;
+            text-align: center;
+        }
+
+        /* main panel */
+        .main-panel { min-width: 0; }
+        .cat-section { display: none; }
+        .cat-section.active { display: block; }
+
+        .cat-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        .cat-title {
+            font-size: 16px;
+            font-weight: 800;
+            color: var(--text);
+        }
+        .cat-stats {
+            display: flex;
+            gap: 10px;
+            font-family: var(--font-mono);
+            font-size: 11px;
+        }
+        .cat-stat { padding: 4px 10px; border-radius: 4px; }
+        .cat-stat.total  { background: var(--bg3); border: 1px solid var(--border); color: var(--text2); }
+        .cat-stat.found  { background: #0d2010; border: 1px solid #1e4020; color: var(--accent3); }
+        .cat-stat.blocked { background: #1a1400; border: 1px solid #3a2e00; color: var(--warn); }
+
+        /* query cards */
+        .query-list { display: flex; flex-direction: column; gap: 8px; }
+
+        .query-card {
+            background: var(--bg2);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            overflow: hidden;
+            transition: border-color .15s;
+        }
+        .query-card:hover { border-color: var(--border2); }
+        .query-card.has-results { border-left: 3px solid var(--accent3); }
+        .query-card.blocked-card { border-left: 3px solid var(--warn); opacity: .75; }
+        .query-card.error-card  { border-left: 3px solid var(--accent2); }
+
+        .query-head {
+            padding: 10px 14px;
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            cursor: pointer;
+            user-select: none;
+        }
+        .query-status-dot {
+            width: 7px; height: 7px;
+            border-radius: 50%;
+            margin-top: 4px;
+            flex-shrink: 0;
+        }
+        .dot-found   { background: var(--accent3); box-shadow: 0 0 6px var(--accent3); }
+        .dot-blocked { background: var(--warn); }
+        .dot-empty   { background: var(--text3); }
+        .dot-error   { background: var(--accent2); }
+
+        .query-text {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--text2);
+            flex: 1;
+            word-break: break-all;
+            line-height: 1.5;
+        }
+        .query-text.has-results { color: var(--text); }
+
+        .query-meta {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-shrink: 0;
+        }
+        .tag {
+            font-family: var(--font-mono);
+            font-size: 10px;
+            font-weight: 700;
+            padding: 2px 7px;
+            border-radius: 3px;
+            text-transform: uppercase;
+        }
+        .tag-found   { background: #0d2010; border: 1px solid #1e4020; color: var(--accent3); }
+        .tag-blocked { background: #1a1400; border: 1px solid #3a2e00; color: var(--warn); }
+        .tag-empty   { background: var(--bg3); border: 1px solid var(--border); color: var(--text3); }
+        .tag-error   { background: #1a0508; border: 1px solid #3a1020; color: var(--accent2); }
+
+        .chevron {
+            color: var(--text3);
+            font-size: 12px;
+            transition: transform .2s;
+            flex-shrink: 0;
+        }
+        .query-card.open .chevron { transform: rotate(180deg); }
+
+        /* results body */
+        .query-body {
+            display: none;
+            border-top: 1px solid var(--border);
+        }
+        .query-card.open .query-body { display: block; }
+
+        /* google link row */
+        .google-link-row {
+            padding: 8px 14px;
+            background: var(--bg3);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .google-link-label {
+            font-family: var(--font-mono);
+            font-size: 10px;
+            color: var(--text3);
+            text-transform: uppercase;
+            letter-spacing: .08em;
+            flex-shrink: 0;
+        }
+        .google-link-row a {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--accent);
+            text-decoration: none;
+            word-break: break-all;
+        }
+        .google-link-row a:hover { text-decoration: underline; }
+
+        /* result items */
+        .result-item {
+            padding: 12px 14px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .result-item:last-child { border-bottom: none; }
+        .result-item.is-baseline { display: none; } /* hide the google URL we already show above */
+
+        .result-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text);
+        }
+        .result-url {
+            font-family: var(--font-mono);
+            font-size: 11px;
+        }
+        .result-url a {
+            color: var(--accent);
+            text-decoration: none;
+            word-break: break-all;
+        }
+        .result-url a:hover { text-decoration: underline; }
+        .result-desc {
+            font-size: 12px;
+            color: var(--text2);
+            line-height: 1.5;
+        }
+
+        .blocked-note {
+            padding: 12px 14px;
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--warn);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .no-results-note {
+            padding: 12px 14px;
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--text3);
+        }
+
+        /* error section */
+        #errorSection {
+            display: none;
+            max-width: 600px;
+            margin: 80px auto;
+            text-align: center;
+            padding: 24px;
+        }
+        .error-code { font-size: 48px; font-weight: 800; color: var(--accent2); margin-bottom: 12px; }
+        .error-msg  { font-size: 14px; color: var(--text2); font-family: var(--font-mono); margin-bottom: 24px; }
+
+        /* ALL view */
+        .all-section { display: none; }
+        .all-section.active { display: block; }
+
+        /* responsive */
+        @media (max-width: 768px) {
+            .content-layout { grid-template-columns: 1fr; }
+            .cat-sidebar { position: static; max-height: 220px; }
+        }
+    </style>
 </head>
 <body>
-    <nav class="navbar navbar-dark bg-dark sticky-top">
-        <div class="container-fluid">
-            <span class="navbar-brand mb-0 h1">
-                <i class="fas fa-search"></i> Google Dorking Tool
-            </span>
-            <div class="nav-buttons">
-                <a href="/" class="btn btn-sm btn-outline-light">Home</a>
-            </div>
+
+<!-- TOPBAR -->
+<nav class="topbar">
+    <div class="topbar-brand">DORK<span>/</span>SCAN &nbsp;·&nbsp; <span id="navDomain">—</span></div>
+    <div class="topbar-actions">
+        <button class="btn btn-ghost" onclick="exportResults('json')">⬇ JSON</button>
+        <button class="btn btn-ghost" onclick="exportResults('csv')">⬇ CSV</button>
+        <a href="/" class="btn btn-primary">+ New Scan</a>
+    </div>
+</nav>
+
+<!-- PROGRESS -->
+<div id="progressSection">
+    <div class="progress-title pulse" id="progressTitle">Initialising scan…</div>
+    <div class="progress-sub" id="progressSub">Connecting to task queue</div>
+    <div class="progress-track">
+        <div class="progress-fill" id="progressFill"></div>
+    </div>
+    <div class="progress-meta">
+        <span id="progressCount">0 / 0 queries</span>
+        <span id="progressPct">0%</span>
+    </div>
+    <div class="progress-query" id="progressQuery">Waiting…</div>
+</div>
+
+<!-- DASHBOARD -->
+<div id="dashboard">
+
+    <!-- meta -->
+    <div class="meta-row">
+        <div class="meta-domain">TARGET: <span id="metaDomain"></span></div>
+        <div class="meta-badge badge-date" id="metaDate"></div>
+    </div>
+
+    <!-- stat cards -->
+    <div class="stat-grid">
+        <div class="stat-card c-total">
+            <div class="stat-label">Queries Run</div>
+            <div class="stat-value" id="statTotal">—</div>
+            <div class="stat-sub">total dork queries</div>
         </div>
-    </nav>
-
-    <div class="container-fluid py-5">
-        <div class="row">
-            <div class="col-lg-10 mx-auto">
-                <!-- Progress Section -->
-                <div class="card shadow-lg mb-4" id="progressCard">
-                    <div class="card-body">
-                        <h5 class="card-title">
-                            <i class="fas fa-hourglass-start"></i> Scan Progress
-                        </h5>
-                        <div class="progress mb-3" style="height: 25px;">
-                            <div class="progress-bar progress-bar-striped progress-bar-animated" 
-                                 id="progressBar" 
-                                 role="progressbar" 
-                                 style="width: 0%"
-                                 aria-valuenow="0" 
-                                 aria-valuemin="0" 
-                                 aria-valuemax="100">
-                                <span id="progressText">0%</span>
-                            </div>
-                        </div>
-                        <div id="statusMessage" class="alert alert-info mb-0">
-                            <i class="fas fa-spinner fa-spin"></i> Loading scan status...
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Results Section -->
-                <div class="card shadow-lg" id="resultsCard" style="display: none;">
-                    <div class="card-body">
-                        <div class="d-flex justify-content-between align-items-center mb-4">
-                            <h5 class="card-title mb-0">
-                                <i class="fas fa-check-circle text-success"></i> Scan Results
-                            </h5>
-                            <div class="btn-group" role="group">
-                                <button type="button" class="btn btn-sm btn-outline-primary" onclick="exportResults('json')">
-                                    <i class="fas fa-download"></i> JSON
-                                </button>
-                                <button type="button" class="btn btn-sm btn-outline-primary" onclick="exportResults('csv')">
-                                    <i class="fas fa-download"></i> CSV
-                                </button>
-                                <a href="/" class="btn btn-sm btn-outline-secondary">
-                                    <i class="fas fa-plus"></i> New Scan
-                                </a>
-                            </div>
-                        </div>
-
-                        <!-- Summary -->
-                        <div id="resultsSummary" class="row mb-4"></div>
-
-                        <!-- Tabs for Results -->
-                        <ul class="nav nav-tabs mb-4" id="resultsTabs" role="tablist">
-                            <!-- Tabs will be generated here -->
-                        </ul>
-
-                        <!-- Tab Content -->
-                        <div class="tab-content" id="resultsTabContent">
-                            <!-- Content will be generated here -->
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Error Section -->
-                <div class="card shadow-lg border-danger" id="errorCard" style="display: none;">
-                    <div class="card-body">
-                        <h5 class="card-title text-danger">
-                            <i class="fas fa-exclamation-circle"></i> Scan Failed
-                        </h5>
-                        <p id="errorMessage" class="mb-0"></p>
-                        <a href="/" class="btn btn-primary mt-3">
-                            <i class="fas fa-arrow-left"></i> Back to Home
-                        </a>
-                    </div>
-                </div>
-            </div>
+        <div class="stat-card c-findings">
+            <div class="stat-label">Findings</div>
+            <div class="stat-value" id="statFindings">—</div>
+            <div class="stat-sub">queries with results</div>
+        </div>
+        <div class="stat-card c-blocked">
+            <div class="stat-label">Blocked / 429</div>
+            <div class="stat-value" id="statBlocked">—</div>
+            <div class="stat-sub">rate-limited by Google</div>
+        </div>
+        <div class="stat-card c-cats">
+            <div class="stat-label">Categories</div>
+            <div class="stat-value" id="statCats">—</div>
+            <div class="stat-sub">categories scanned</div>
+        </div>
+        <div class="stat-card c-rate">
+            <div class="stat-label">Coverage</div>
+            <div class="stat-value" id="statRate">—</div>
+            <div class="stat-sub">queries not blocked</div>
         </div>
     </div>
 
-    <footer class="bg-dark text-white text-center py-4 mt-5">
-        <p class="mb-0">
-            <i class="fas fa-shield-alt"></i> 
-            Google Dorking Tool - For authorized security testing only
-        </p>
-    </footer>
+    <!-- findings banner -->
+    <div class="findings-banner" id="findingsBanner">
+        <div class="findings-dot" id="findingsDot"></div>
+        <div class="findings-text" id="findingsText"></div>
+    </div>
 
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
-    <script>
-        const taskId = "{{ task_id }}";
-        let pollCount = 0;
-        const maxPolls = 360; // 30 minutes with 5-second intervals
+    <!-- layout -->
+    <div class="content-layout">
 
-        function pollScanStatus() {
-            pollCount++;
-            
-            if (pollCount > maxPolls) {
-                showError('Scan timeout: Please try again');
-                return;
+        <!-- sidebar -->
+        <div class="cat-sidebar">
+            <div class="cat-sidebar-header">Categories</div>
+            <div id="catList"></div>
+        </div>
+
+        <!-- main -->
+        <div class="main-panel" id="mainPanel"></div>
+
+    </div>
+</div>
+
+<!-- ERROR -->
+<div id="errorSection">
+    <div class="error-code">ERR</div>
+    <div class="error-msg" id="errorMsg">Unknown error</div>
+    <a href="/" class="btn btn-primary">← New Scan</a>
+</div>
+
+<script>
+const TASK_ID = "{{ task_id }}";
+let pollTimer = null;
+let scanData  = null;
+let activeCat = null;
+
+// ── POLLING ─────────────────────────────────────────────────────────────────
+
+function poll() {
+    fetch(`/api/scan-status/${TASK_ID}`)
+        .then(r => r.json())
+        .then(data => {
+            if (data.status === 'PROGRESS') {
+                const cur   = data.progress || 0;
+                const total = data.total || 1;
+                const pct   = Math.round((cur / total) * 100);
+                document.getElementById('progressFill').style.width  = pct + '%';
+                document.getElementById('progressPct').textContent   = pct + '%';
+                document.getElementById('progressCount').textContent = `${cur} / ${total} queries`;
+                document.getElementById('progressTitle').textContent = data.message || 'Scanning…';
+                document.getElementById('progressTitle').classList.add('pulse');
+                if (data.current_query) {
+                    document.getElementById('progressQuery').textContent = data.current_query;
+                }
+                pollTimer = setTimeout(poll, 3000);
+            }
+            else if (data.status === 'SUCCESS') {
+                document.getElementById('progressFill').style.width = '100%';
+                document.getElementById('progressTitle').textContent = 'Scan complete';
+                document.getElementById('progressTitle').classList.remove('pulse');
+                setTimeout(() => renderDashboard(data.data), 400);
+            }
+            else if (data.status === 'FAILURE') {
+                showError(data.error || 'Task failed');
+            }
+            else {
+                // PENDING
+                document.getElementById('progressSub').textContent = 'Waiting for worker…';
+                pollTimer = setTimeout(poll, 3000);
+            }
+        })
+        .catch(() => { pollTimer = setTimeout(poll, 5000); });
+}
+
+// ── RENDER ───────────────────────────────────────────────────────────────────
+
+function renderDashboard(results) {
+    scanData = results;
+    document.getElementById('progressSection').style.display = 'none';
+    document.getElementById('dashboard').style.display = 'block';
+
+    const domain    = results.domain || '—';
+    const scanDate  = results.scan_date ? new Date(results.scan_date).toLocaleString() : '—';
+    const cats      = results.results_by_category || {};
+    const totalQ    = results.total_queries || 0;
+
+    document.getElementById('navDomain').textContent  = domain;
+    document.getElementById('metaDomain').textContent = domain;
+    document.getElementById('metaDate').textContent   = scanDate;
+
+    // Compute stats
+    let findings = 0, blocked = 0, unblocked = 0;
+
+    // category → { queries, findingCount, blockedCount }
+    const catStats = {};
+
+    Object.entries(cats).forEach(([cat, queries]) => {
+        let catFindings = 0, catBlocked = 0;
+        queries.forEach(q => {
+            const realResults = getRealResults(q);
+            const isBlocked   = q.blocked === true;
+            if (realResults.length > 0) { findings++; catFindings++; }
+            if (isBlocked) { blocked++; catBlocked++; } else { unblocked++; }
+        });
+        catStats[cat] = { queries, findingCount: catFindings, blockedCount: catBlocked };
+    });
+
+    const coverage = totalQ > 0 ? Math.round((unblocked / totalQ) * 100) : 0;
+
+    document.getElementById('statTotal').textContent    = totalQ;
+    document.getElementById('statFindings').textContent = findings;
+    document.getElementById('statBlocked').textContent  = blocked;
+    document.getElementById('statCats').textContent     = Object.keys(cats).length;
+    document.getElementById('statRate').textContent     = coverage + '%';
+
+    // Findings banner
+    const banner   = document.getElementById('findingsBanner');
+    const dot      = document.getElementById('findingsDot');
+    const txt      = document.getElementById('findingsText');
+    if (findings > 0) {
+        txt.innerHTML = `<strong>${findings} queries returned results</strong> — review highlighted entries below. Open each Google URL to verify findings.`;
+    } else {
+        banner.classList.add('none');
+        dot.classList.add('none');
+        txt.classList.add('none');
+        txt.innerHTML = `<strong>No direct results extracted</strong> — Google may have blocked parsing. Use the search URLs to investigate manually.`;
+    }
+
+    // Build sidebar + panels
+    const catList  = document.getElementById('catList');
+    const mainPanel = document.getElementById('mainPanel');
+    catList.innerHTML = '';
+    mainPanel.innerHTML = '';
+
+    // Sort: categories with findings first
+    const sortedCats = Object.entries(catStats).sort((a, b) => b[1].findingCount - a[1].findingCount);
+
+    sortedCats.forEach(([cat, stat], idx) => {
+        const totalInCat   = stat.queries.length;
+        const findingCount = stat.findingCount;
+        const blockedCount = stat.blockedCount;
+
+        // Sidebar item
+        const item = document.createElement('div');
+        item.className = 'cat-item' + (findingCount > 0 ? ' has-findings' : '');
+        item.dataset.cat = cat;
+        item.innerHTML = `
+            <span class="cat-name">${catLabel(cat)}</span>
+            <span class="cat-count">${findingCount > 0 ? findingCount : totalInCat}</span>
+        `;
+        item.addEventListener('click', () => switchCat(cat));
+        catList.appendChild(item);
+
+        // Main panel section
+        const section = document.createElement('div');
+        section.className = 'cat-section';
+        section.id = 'section-' + cat;
+
+        let html = `
+            <div class="cat-header">
+                <div class="cat-title">${catLabel(cat)}</div>
+                <div class="cat-stats">
+                    <span class="cat-stat total">${totalInCat} queries</span>
+                    ${findingCount > 0 ? `<span class="cat-stat found">⬢ ${findingCount} with results</span>` : ''}
+                    ${blockedCount > 0 ? `<span class="cat-stat blocked">⚡ ${blockedCount} blocked</span>` : ''}
+                </div>
+            </div>
+            <div class="query-list">
+        `;
+
+        // Sort queries: with results first, then blocked, then empty
+        const sorted = [...stat.queries].sort((a, b) => {
+            const aR = getRealResults(a).length;
+            const bR = getRealResults(b).length;
+            if (aR !== bR) return bR - aR;
+            return (a.blocked ? 1 : 0) - (b.blocked ? 1 : 0);
+        });
+
+        sorted.forEach((q, qi) => {
+            const realResults = getRealResults(q);
+            const hasResults  = realResults.length > 0;
+            const isBlocked   = q.blocked === true;
+            const isError     = q.status === 'error';
+
+            let cardClass = 'query-card';
+            let dotClass  = 'query-status-dot dot-empty';
+            let tag       = '<span class="tag tag-empty">EMPTY</span>';
+
+            if (hasResults)  { cardClass += ' has-results'; dotClass = 'query-status-dot dot-found';   tag = `<span class="tag tag-found">✓ ${realResults.length} FOUND</span>`; }
+            else if (isError){ cardClass += ' error-card';  dotClass = 'query-status-dot dot-error';   tag = '<span class="tag tag-error">ERROR</span>'; }
+            else if (isBlocked){ cardClass += ' blocked-card'; dotClass = 'query-status-dot dot-blocked'; tag = '<span class="tag tag-blocked">BLOCKED</span>'; }
+
+            const qid = `q-${cat}-${qi}`;
+
+            html += `
+            <div class="${cardClass}" id="${qid}">
+                <div class="query-head" onclick="toggleQuery('${qid}')">
+                    <div class="${dotClass}"></div>
+                    <div class="query-text ${hasResults ? 'has-results' : ''}">${escHtml(q.query || '—')}</div>
+                    <div class="query-meta">
+                        ${tag}
+                        <span class="chevron">▾</span>
+                    </div>
+                </div>
+                <div class="query-body">
+                    <div class="google-link-row">
+                        <span class="google-link-label">Open in Google →</span>
+                        <a href="${escHtml(q.url || '#')}" target="_blank" rel="noopener">${escHtml(q.url || '')}</a>
+                    </div>
+            `;
+
+            if (isError) {
+                html += `<div class="blocked-note">⚠ ${escHtml(q.error || 'Request failed')}</div>`;
+            } else if (isBlocked && !hasResults) {
+                html += `<div class="blocked-note">⚡ ${escHtml(q.note || 'Google rate-limited this request — click the URL to run manually.')}</div>`;
+            } else if (!hasResults) {
+                html += `<div class="no-results-note">No results extracted. Click the URL to verify manually.</div>`;
             }
 
-            fetch(`/api/scan-status/${taskId}`)
-                .then(response => response.json())
-                .then(data => {
-                    if (data.status === 'PROGRESS') {
-                        const progress = data.progress || 0;
-                        const total = data.total || 1;
-                        const percentage = Math.round((progress / total) * 100);
-                        
-                        document.getElementById('progressBar').style.width = percentage + '%';
-                        document.getElementById('progressBar').setAttribute('aria-valuenow', percentage);
-                        document.getElementById('progressText').innerText = percentage + '%';
-                        document.getElementById('statusMessage').innerHTML = 
-                            `<i class="fas fa-spinner fa-spin"></i> ${data.message}<br><small>${progress}/${total} queries</small>`;
-                        
-                        // Continue polling
-                        setTimeout(pollScanStatus, 5000);
-                    } 
-                    else if (data.status === 'SUCCESS') {
-                        document.getElementById('progressBar').style.width = '100%';
-                        document.getElementById('progressText').innerText = '100%';
-                        document.getElementById('statusMessage').innerHTML = 
-                            '<i class="fas fa-check-circle text-success"></i> Scan completed successfully!';
-                        
-                        displayResults(data.data);
-                    } 
-                    else if (data.status === 'FAILURE') {
-                        showError(data.error || 'Unknown error occurred');
-                    }
-                })
-                .catch(error => {
-                    console.error('Error polling status:', error);
-                    setTimeout(pollScanStatus, 5000); // Retry on error
-                });
-        }
-
-        function displayResults(results) {
-            document.getElementById('progressCard').style.display = 'none';
-            document.getElementById('resultsCard').style.display = 'block';
-            
-            // Display summary
-            const summary = document.getElementById('resultsSummary');
-            summary.innerHTML = `
-                <div class="col-md-4">
-                    <div class="card text-center border-primary">
-                        <div class="card-body">
-                            <h6 class="card-title">Domain</h6>
-                            <p class="card-text"><strong>${results.domain}</strong></p>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-4">
-                    <div class="card text-center border-info">
-                        <div class="card-body">
-                            <h6 class="card-title">Categories Scanned</h6>
-                            <p class="card-text"><strong>${results.categories_scanned.length}</strong></p>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-4">
-                    <div class="card text-center border-success">
-                        <div class="card-body">
-                            <h6 class="card-title">Total Queries</h6>
-                            <p class="card-text"><strong>${results.total_queries}</strong></p>
-                        </div>
-                    </div>
-                </div>
-            `;
-            
-            // Create tabs for each category
-            const tabsList = document.getElementById('resultsTabs');
-            const tabsContent = document.getElementById('resultsTabContent');
-            
-            let isFirst = true;
-            Object.entries(results.results_by_category).forEach(([category, queries]) => {
-                // Add tab
-                const tabId = `tab_${category}`;
-                const tabLink = document.createElement('li');
-                tabLink.className = 'nav-item';
-                tabLink.innerHTML = `
-                    <button class="nav-link ${isFirst ? 'active' : ''}" 
-                            id="${tabId}_tab" 
-                            data-bs-toggle="tab" 
-                            data-bs-target="#${tabId}" 
-                            type="button">
-                        ${category.replace(/_/g, ' ')} (${queries.length})
-                    </button>
-                `;
-                tabsList.appendChild(tabLink);
-                
-                // Add content
-                const successCount = queries.filter(q => q.status === 'success').length;
-                const resultsCount = queries.reduce((sum, q) => sum + (q.results ? q.results.length : 0), 0);
-                
-                const tabContent = document.createElement('div');
-                tabContent.className = `tab-pane fade ${isFirst ? 'show active' : ''}`;
-                tabContent.id = tabId;
-                
-                let html = `
-                    <div class="alert alert-info mb-3">
-                        <strong>Success Rate:</strong> ${successCount}/${queries.length} | 
-                        <strong>Results Found:</strong> ${resultsCount}
-                    </div>
-                    <div class="table-responsive">
-                        <table class="table table-hover table-sm">
-                            <thead>
-                                <tr>
-                                    <th>Query</th>
-                                    <th>Status</th>
-                                    <th>Results</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                `;
-                
-                queries.forEach(query => {
-                    const status = query.status === 'success' ? 
-                        '<span class="badge bg-success">Success</span>' : 
-                        '<span class="badge bg-danger">Error</span>';
-                    const resultCount = query.results ? query.results.length : 0;
-                    
-                    html += `
-                        <tr>
-                            <td><small class="font-monospace">${query.query}</small></td>
-                            <td>${status}</td>
-                            <td>${resultCount}</td>
-                        </tr>
-                    `;
-                });
-                
+            // Real results (skip the baseline google-URL entry)
+            realResults.forEach(r => {
                 html += `
-                            </tbody>
-                        </table>
-                    </div>
+                <div class="result-item">
+                    <div class="result-title">${escHtml(r.title || '—')}</div>
+                    <div class="result-url"><a href="${escHtml(r.url)}" target="_blank" rel="noopener">${escHtml(r.url)}</a></div>
+                    ${r.description ? `<div class="result-desc">${escHtml(r.description)}</div>` : ''}
+                </div>
                 `;
-                
-                tabContent.innerHTML = html;
-                tabsContent.appendChild(tabContent);
-                
-                isFirst = false;
             });
-        }
 
-        function showError(message) {
-            document.getElementById('progressCard').style.display = 'none';
-            document.getElementById('resultsCard').style.display = 'none';
-            document.getElementById('errorCard').style.display = 'block';
-            document.getElementById('errorMessage').innerText = message;
-        }
-
-        function exportResults(format) {
-            window.location.href = `/api/export-results/${taskId}?format=${format}`;
-        }
-
-        // Start polling on page load
-        document.addEventListener('DOMContentLoaded', function() {
-            pollScanStatus();
+            html += `</div></div>`;  // close body + card
         });
-    </script>
+
+        html += '</div>'; // close query-list
+        section.innerHTML = html;
+        mainPanel.appendChild(section);
+
+        // Auto-open first category (or first with findings)
+        if (idx === 0) activeCat = cat;
+    });
+
+    // Activate first (or first with findings)
+    const firstWithFindings = sortedCats.find(([, s]) => s.findingCount > 0);
+    switchCat(firstWithFindings ? firstWithFindings[0] : sortedCats[0]?.[0]);
+}
+
+// ── HELPERS ──────────────────────────────────────────────────────────────────
+
+// Returns results excluding the baseline Google-search-URL entry
+function getRealResults(q) {
+    if (!q.results) return [];
+    return q.results.filter(r =>
+        r.url && !r.url.startsWith('https://www.google.com/search') &&
+        r.title && !r.title.startsWith('Google:')
+    );
+}
+
+function switchCat(cat) {
+    if (!cat) return;
+    activeCat = cat;
+    document.querySelectorAll('.cat-item').forEach(el => {
+        el.classList.toggle('active', el.dataset.cat === cat);
+    });
+    document.querySelectorAll('.cat-section').forEach(el => {
+        el.classList.toggle('active', el.id === 'section-' + cat);
+    });
+    document.querySelector('.main-panel')?.scrollTo(0, 0);
+}
+
+function toggleQuery(qid) {
+    const card = document.getElementById(qid);
+    if (card) card.classList.toggle('open');
+}
+
+function catLabel(cat) {
+    return cat.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function escHtml(str) {
+    return String(str)
+        .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+        .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function showError(msg) {
+    document.getElementById('progressSection').style.display = 'none';
+    document.getElementById('dashboard').style.display      = 'none';
+    document.getElementById('errorSection').style.display   = 'block';
+    document.getElementById('errorMsg').textContent         = msg;
+}
+
+function exportResults(fmt) {
+    window.location.href = `/api/export-results/${TASK_ID}?format=${fmt}`;
+}
+
+// ── BOOT ─────────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', poll);
+</script>
 </body>
 </html>

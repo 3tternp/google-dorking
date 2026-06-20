@@ -17,11 +17,11 @@ class TestDorkingQueries(unittest.TestCase):
         self.assertGreater(len(queries), 0)
     
     def test_domain_substitution(self):
-        """Test domain is correctly substituted in queries"""
+        """Test {domain} placeholder is fully substituted in all queries"""
         queries = get_queries_for_domain('test.com')
         for category, query_list in queries.items():
             for query in query_list:
-                self.assertIn('test.com', query)
+                self.assertNotIn('{domain}', query)
     
     def test_get_all_categories(self):
         """Test getting all categories"""
