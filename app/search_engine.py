@@ -1,26 +1,31 @@
 """
 Google Search Module
-Uses googlesearch-python library (no API key needed) as primary,
-falls back to raw requests + bs4 parsing.
-Conservative rate limiting to avoid 429s.
+
+Priority order:
+  1. Google Custom Search API  (no rate-limits, requires GOOGLE_API_KEY + GOOGLE_SEARCH_ENGINE_ID)
+  2. googlesearch-python       (free, moderate rate-limits)
+  3. requests + BeautifulSoup  (free, most likely to get blocked)
+
+Set GOOGLE_API_KEY and GOOGLE_SEARCH_ENGINE_ID in .env to eliminate rate-limiting.
+Free tier: 100 queries/day. Paid: $5 per 1000 queries.
 """
 
 import time
 import threading
+import random
 import logging
 from urllib.parse import quote, unquote
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 import requests
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Check optional deps once at import
 try:
     from googlesearch import search as gsearch
     GSEARCH_AVAILABLE = True
-    logger.info("googlesearch-python available — using as primary search engine")
+    logger.info("googlesearch-python available — using as secondary search backend")
 except ImportError:
     GSEARCH_AVAILABLE = False
     logger.warning("googlesearch-python not installed. Run: pip install googlesearch-python")
@@ -36,7 +41,16 @@ try:
 except ImportError:
     BS4_AVAILABLE = False
     BS4_PARSER = 'html.parser'
-    logger.warning("beautifulsoup4 not installed. Run: pip install beautifulsoup4")
+
+# Rotate user-agents to reduce fingerprinting when scraping
+_USER_AGENTS = [
+    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (X11; Linux x86_64; rv:124.0) Gecko/20100101 Firefox/124.0',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:123.0) Gecko/20100101 Firefox/123.0',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15',
+]
 
 
 class RateLimiter:
@@ -59,16 +73,32 @@ class GoogleSearcher:
     """
     Thread-safe Google dorking searcher.
 
-    Priority:
-      1. googlesearch-python  (handles throttling internally, most reliable)
-      2. Raw requests + bs4   (fallback, may get blocked)
+    Backend priority:
+      1. Google Custom Search API  — set api_key + search_engine_id to enable
+      2. googlesearch-python       — free, handles its own throttle
+      3. requests + bs4            — last resort, most blockable
 
-    Never returns the dork query URL itself as a "finding".
+    Never returns the dork query URL itself as a finding.
     """
 
-    def __init__(self, delay: float = 2.0, rate_limit: float = 0.5):
+    GOOGLE_API_ENDPOINT = 'https://www.googleapis.com/customsearch/v1'
+
+    def __init__(
+        self,
+        delay: float = 2.0,
+        rate_limit: float = 0.5,
+        api_key: Optional[str] = None,
+        search_engine_id: Optional[str] = None,
+    ):
         self.delay = delay
         self.rate_limiter = RateLimiter(rate=rate_limit)
+        self._api_key = api_key
+        self._search_engine_id = search_engine_id
+        self._use_api = bool(api_key and search_engine_id)
+
+        if self._use_api:
+            logger.info("Google Custom Search API configured — rate-limiting disabled")
+
         self._thread_local = threading.local()
         self._lock = threading.Lock()
         self.total_queries = 0
@@ -82,15 +112,17 @@ class GoogleSearcher:
         if not hasattr(self._thread_local, 'session'):
             s = requests.Session()
             s.headers.update({
-                'User-Agent': (
-                    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 '
-                    '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
-                ),
+                'User-Agent': random.choice(_USER_AGENTS),
                 'Accept-Language': 'en-US,en;q=0.9',
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
             })
             self._thread_local.session = s
         return self._thread_local.session
+
+    def _rotate_ua(self):
+        """Pick a fresh user-agent for this thread's session."""
+        if hasattr(self._thread_local, 'session'):
+            self._thread_local.session.headers['User-Agent'] = random.choice(_USER_AGENTS)
 
     # ── stats ─────────────────────────────────────────────────────────────
 
@@ -107,32 +139,104 @@ class GoogleSearcher:
 
     def search(self, query: str, max_results: int = 5) -> Dict:
         """
-        Run one dork query. Returns structured result dict.
-        The Google search URL is stored in result['url'] for manual use
+        Run one dork query. Returns a structured result dict.
+        The Google search URL is stored in result['url'] for manual fallback
         but is NEVER included in result['results'] as a finding.
         """
-        with self._lock:
-            consec = self._consecutive_429s
-        if consec >= 3:
-            extra = min(consec * 5, 60)
-            logger.warning(f"Back-off extra {extra}s after {consec} consecutive 429s")
-            time.sleep(extra)
+        # Back-off when repeatedly rate-limited (scraping path only)
+        if not self._use_api:
+            with self._lock:
+                consec = self._consecutive_429s
+            if consec >= 3:
+                extra = min(consec * 5, 60)
+                logger.warning(f"Back-off extra {extra}s after {consec} consecutive 429s")
+                time.sleep(extra)
 
-        self.rate_limiter.acquire()
+            self.rate_limiter.acquire()
+            self._rotate_ua()
 
         encoded    = quote(query)
         search_url = f"https://www.google.com/search?q={encoded}&num={max_results}&hl=en"
 
-        # Try googlesearch-python first
-        if GSEARCH_AVAILABLE:
+        if self._use_api:
+            result = self._search_via_google_api(query, max_results, search_url)
+        elif GSEARCH_AVAILABLE:
             result = self._search_via_library(query, max_results, search_url)
         else:
             result = self._search_via_requests(query, max_results, search_url)
 
-        if self.delay > 0:
-            time.sleep(self.delay)
+        if not self._use_api and self.delay > 0:
+            # Add random jitter (±20 %) to make traffic less predictable
+            jitter = self.delay * random.uniform(0.8, 1.2)
+            time.sleep(jitter)
 
         return result
+
+    # ── Google Custom Search API backend ─────────────────────────────────
+
+    def _search_via_google_api(self, query: str, max_results: int, search_url: str) -> Dict:
+        """
+        Official Google Custom Search JSON API.
+        Free: 100 queries/day. Paid: $5 per 1,000 queries.
+        No rate-limiting, no CAPTCHAs, always returns structured results.
+        """
+        try:
+            params = {
+                'key': self._api_key,
+                'cx':  self._search_engine_id,
+                'q':   query,
+                'num': min(max_results, 10),  # API cap is 10 per request
+            }
+            resp = self._get_session().get(
+                self.GOOGLE_API_ENDPOINT, params=params, timeout=15
+            )
+            resp.raise_for_status()
+            data = resp.json()
+
+            results = [
+                {
+                    'title':       item.get('title', ''),
+                    'url':         item.get('link', ''),
+                    'description': item.get('snippet', ''),
+                }
+                for item in data.get('items', [])
+                if item.get('link') and 'google.com' not in item.get('link', '')
+            ]
+
+            self._inc(success=True)
+            return {
+                'status':  'success',
+                'query':   query,
+                'url':     search_url,
+                'blocked': False,
+                'via':     'google_api',
+                'results': results,
+            }
+
+        except requests.exceptions.HTTPError as e:
+            code = e.response.status_code if e.response else '?'
+            logger.error(f"Google API HTTP {code} for '{query[:60]}'")
+            if code == 429:
+                # Quota exhausted — fall back to library
+                logger.warning("Google API quota exhausted; falling back to scraping")
+                return self._search_via_library(query, max_results, search_url) \
+                    if GSEARCH_AVAILABLE \
+                    else self._search_via_requests(query, max_results, search_url)
+            self._inc(success=False)
+            return {
+                'status':  'error',
+                'query':   query,
+                'url':     search_url,
+                'error':   f'Google API HTTP {code}',
+                'results': [],
+            }
+
+        except Exception as e:
+            logger.error(f"Google API error for '{query[:60]}': {e}")
+            # Fall back to library
+            return self._search_via_library(query, max_results, search_url) \
+                if GSEARCH_AVAILABLE \
+                else self._search_via_requests(query, max_results, search_url)
 
     # ── googlesearch-python backend ───────────────────────────────────────
 
@@ -141,21 +245,21 @@ class GoogleSearcher:
             urls = list(gsearch(query, num_results=max_results, sleep_interval=2, lang="en"))
             results = []
             for url in urls:
-                # Filter out google.com URLs (redirects, cache links etc.)
                 if 'google.com' in url:
                     continue
                 results.append({
-                    'title': self._url_to_title(url),
-                    'url': url,
+                    'title':       self._url_to_title(url),
+                    'url':         url,
                     'description': '',
                 })
 
             self._inc(success=True)
             return {
-                'status': 'success',
-                'query': query,
-                'url': search_url,
+                'status':  'success',
+                'query':   query,
+                'url':     search_url,
                 'blocked': False,
+                'via':     'googlesearch_lib',
                 'results': results,
             }
 
@@ -167,15 +271,15 @@ class GoogleSearcher:
                 logger.warning(f"googlesearch rate-limited: {query[:60]}")
                 self._inc(success=True)
                 return {
-                    'status': 'success',
-                    'query': query,
-                    'url': search_url,
+                    'status':  'success',
+                    'query':   query,
+                    'url':     search_url,
                     'blocked': True,
-                    'note': 'Google rate-limited — open URL manually.',
+                    'via':     'googlesearch_lib',
+                    'note':    'Google rate-limited — open URL manually or configure GOOGLE_API_KEY.',
                     'results': [],
                 }
             logger.error(f"googlesearch error for '{query[:60]}': {e}")
-            # Fall back to requests
             return self._search_via_requests(query, max_results, search_url)
 
     # ── requests + bs4 backend ────────────────────────────────────────────
@@ -193,11 +297,12 @@ class GoogleSearcher:
                 time.sleep(back_off)
                 self._inc(success=True)
                 return {
-                    'status': 'success',
-                    'query': query,
-                    'url': search_url,
+                    'status':  'success',
+                    'query':   query,
+                    'url':     search_url,
                     'blocked': True,
-                    'note': 'Google rate-limited — open URL manually.',
+                    'via':     'requests',
+                    'note':    'Google rate-limited — open URL manually or configure GOOGLE_API_KEY.',
                     'results': [],
                 }
 
@@ -205,10 +310,11 @@ class GoogleSearcher:
             parsed = self._parse_html(resp.text, max_results) if BS4_AVAILABLE else []
             self._inc(success=True)
             return {
-                'status': 'success',
-                'query': query,
-                'url': search_url,
+                'status':  'success',
+                'query':   query,
+                'url':     search_url,
                 'blocked': len(parsed) == 0,
+                'via':     'requests',
                 'results': parsed,
             }
 
@@ -216,21 +322,22 @@ class GoogleSearcher:
             code = e.response.status_code if e.response else '?'
             self._inc(success=True)
             return {
-                'status': 'success',
-                'query': query,
-                'url': search_url,
+                'status':  'success',
+                'query':   query,
+                'url':     search_url,
                 'blocked': True,
-                'note': f'HTTP {code} — open URL manually.',
+                'via':     'requests',
+                'note':    f'HTTP {code} — open URL manually or configure GOOGLE_API_KEY.',
                 'results': [],
             }
         except requests.RequestException as e:
             logger.error(f"Request failed '{query[:60]}': {e}")
             self._inc(success=False)
             return {
-                'status': 'error',
-                'query': query,
-                'url': search_url,
-                'error': str(e),
+                'status':  'error',
+                'query':   query,
+                'url':     search_url,
+                'error':   str(e),
                 'results': [],
             }
 
@@ -258,12 +365,11 @@ class GoogleSearcher:
                     href = link_el.get('href', '')
                     if href.startswith('/url?q='):
                         href = unquote(href.split('/url?q=')[1].split('&')[0])
-                    # Skip google.com URLs entirely
                     if not href.startswith('http') or 'google.com' in href:
                         continue
                     results.append({
-                        'title': title_el.get_text(strip=True),
-                        'url': href,
+                        'title':       title_el.get_text(strip=True),
+                        'url':         href,
                         'description': desc_el.get_text(strip=True) if desc_el else '',
                     })
                 except Exception:
@@ -277,7 +383,6 @@ class GoogleSearcher:
 
     @staticmethod
     def _url_to_title(url: str) -> str:
-        """Generate a readable title from a URL when we have no HTML to parse."""
         try:
             from urllib.parse import urlparse
             p = urlparse(url)
@@ -294,8 +399,9 @@ class GoogleSearcher:
         with self._lock:
             t, s, f = self.total_queries, self.successful_queries, self.failed_queries
         return {
-            'total_queries': t,
+            'total_queries':      t,
             'successful_queries': s,
-            'failed_queries': f,
-            'success_rate': round((s / t * 100) if t > 0 else 0, 1),
+            'failed_queries':     f,
+            'success_rate':       round((s / t * 100) if t > 0 else 0, 1),
+            'api_mode':           self._use_api,
         }
