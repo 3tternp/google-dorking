@@ -42,10 +42,14 @@ celery_app.conf.update(
 # Configuration
 # ---------------------------------------------------------------------------
 
-MAX_THREADS   = int(os.getenv("SCAN_MAX_THREADS", 10))   # concurrent HTTP threads
+MAX_THREADS   = int(os.getenv("SCAN_MAX_THREADS", 3))    # concurrent HTTP threads (low default avoids 429s)
 MAX_RESULTS   = int(os.getenv("MAX_RESULTS_PER_QUERY", 5))
-REQUEST_DELAY = float(os.getenv("REQUEST_DELAY_SECONDS", 0.3))  # per-thread courtesy delay
-RATE_LIMIT    = float(os.getenv("SCAN_RATE_LIMIT", 3.0))        # global req/sec
+REQUEST_DELAY = float(os.getenv("REQUEST_DELAY_SECONDS", 2.0))  # per-thread courtesy delay
+RATE_LIMIT    = float(os.getenv("SCAN_RATE_LIMIT", 0.5))        # global req/sec
+
+# Google Custom Search API credentials (optional but eliminates rate-limiting)
+GOOGLE_API_KEY        = os.getenv("GOOGLE_API_KEY")
+GOOGLE_SEARCH_ENGINE_ID = os.getenv("GOOGLE_SEARCH_ENGINE_ID")
 
 # How often to push a progress update (every N completed queries).
 # Lower = more Redis writes but smoother UI bar. Keep ≥ 1.
@@ -87,7 +91,12 @@ def execute_dorking_scan(self, domain: str, categories: list = None, *args, **kw
     This turns a 6-minute sequential scan into ~20–40 seconds.
     """
 
-    searcher = GoogleSearcher(delay=REQUEST_DELAY, rate_limit=RATE_LIMIT)
+    searcher = GoogleSearcher(
+        delay=REQUEST_DELAY,
+        rate_limit=RATE_LIMIT,
+        api_key=GOOGLE_API_KEY,
+        search_engine_id=GOOGLE_SEARCH_ENGINE_ID,
+    )
 
     try:
         queries_dict = get_queries_for_domain(domain, categories)
@@ -179,7 +188,12 @@ def scan_category(self, domain: str, category: str, queries: list):
     Intended to be called as part of a Celery chord for maximum parallelism
     across multiple Celery workers.
     """
-    searcher = GoogleSearcher(delay=REQUEST_DELAY, rate_limit=RATE_LIMIT)
+    searcher = GoogleSearcher(
+        delay=REQUEST_DELAY,
+        rate_limit=RATE_LIMIT,
+        api_key=GOOGLE_API_KEY,
+        search_engine_id=GOOGLE_SEARCH_ENGINE_ID,
+    )
     results = []
 
     with ThreadPoolExecutor(max_workers=min(MAX_THREADS, len(queries))) as executor:
